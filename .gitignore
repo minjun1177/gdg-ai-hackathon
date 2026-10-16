@@ -11,3 +11,5 @@ HUMANS.md
 *.key
 credentials*.json
 PLAN.md
+.mcp.json
+.*/

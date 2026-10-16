@@ -5,6 +5,9 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  GITHUB_API_CREDENTIAL_ID,
+  GITHUB_GIT_CREDENTIAL_ID,
+  buildAgentEnvironment,
   buildFixPrompt,
   buildReproducePrompt,
   detectTestFilesChanged,
@@ -12,6 +15,7 @@ import {
   runBugReelPipeline,
   validateAnalysisResult,
   validateFixResult,
+  validateReproduceResult,
 } from "../pipeline.js";
 import { app, isValidGithubRepoUrl, reports } from "../server.js";
 
@@ -23,6 +27,38 @@ test("isValidGithubRepoUrl validates github.com owner/repo URLs", () => {
   assert.equal(isValidGithubRepoUrl("https://github.com/only-owner"), false);
   assert.equal(isValidGithubRepoUrl("https://evil.com/a/b"), false);
   assert.equal(isValidGithubRepoUrl("javascript:alert(1)"), false);
+});
+
+test("buildAgentEnvironment uses explicit allowlist (no wildcard '*') and credential IDs (no inline transform)", () => {
+  process.env.GITHUB_TOKEN = "ghp_secret_should_never_appear_in_env_payload";
+  try {
+    const envWithCreds = buildAgentEnvironment({
+      apiCredentialId: GITHUB_API_CREDENTIAL_ID,
+      gitCredentialId: GITHUB_GIT_CREDENTIAL_ID,
+    });
+    const allowlist = envWithCreds.network.allowlist;
+    assert.ok(Array.isArray(allowlist) && allowlist.length > 0);
+
+    // Must not contain wildcard "*" or inline transform headers
+    for (const rule of allowlist) {
+      assert.notEqual(rule.domain, "*", "Wildcard domain '*' must not be in allowlist");
+      assert.equal(rule.transform, undefined, "Inline transform headers must not be used");
+    }
+
+    const serialized = JSON.stringify(envWithCreds);
+    assert.equal(
+      serialized.includes("ghp_secret_should_never_appear_in_env_payload"),
+      false,
+      "Raw GITHUB_TOKEN must never be serialized into environment config"
+    );
+
+    const githubRule = allowlist.find((r) => r.domain === "github.com");
+    const apiGithubRule = allowlist.find((r) => r.domain === "api.github.com");
+    assert.equal(githubRule?.credential, GITHUB_GIT_CREDENTIAL_ID);
+    assert.equal(apiGithubRule?.credential, GITHUB_API_CREDENTIAL_ID);
+  } finally {
+    delete process.env.GITHUB_TOKEN;
+  }
 });
 
 test("server health endpoints and Multer error handling return JSON", async () => {
@@ -111,6 +147,39 @@ test("detectTestFilesChanged server-side guard detects changes outside tests/rep
   assert.equal(fixResult.test_files_changed, true);
 });
 
+test("validateReproduceResult and validateFixResult cross-check test counts against status", () => {
+  // Claiming "reproduced" when 1/1 passed must become "not_reproduced"
+  const falseRepro = validateReproduceResult({
+    status: "reproduced",
+    repro_test: "test('x', () => {})",
+    tests: { passed: 1, total: 1 },
+  });
+  assert.equal(falseRepro.status, "not_reproduced");
+
+  // Claiming "reproduced" when 0/0 ran must become "error"
+  const zeroRepro = validateReproduceResult({
+    status: "reproduced",
+    repro_test: "",
+    tests: { passed: 0, total: 0 },
+  });
+  assert.equal(zeroRepro.status, "error");
+
+  // Claiming "fixed" when 0/1 passed must become "failed"
+  const falseFix = validateFixResult(
+    {
+      status: "fixed",
+      attempts: 2,
+      tests: { passed: 0, total: 1 },
+      branch: "bugreel/fix-9999",
+      diff: "",
+      test_files_changed: false,
+      summary: "Claimed fixed but failed test",
+    },
+    "9999"
+  );
+  assert.equal(falseFix.status, "failed");
+});
+
 test("pipeline stops at not_reproduced without attempting fix, and runs RED -> GREEN when reproduced", async () => {
   const mockAnalysis = validateAnalysisResult(
     extractJsonObject(`\`\`\`json
@@ -127,7 +196,7 @@ test("pipeline stops at not_reproduced without attempting fix, and runs RED -> G
     \`\`\``)
   );
 
-  // Case 1: Not reproduced -> fixBug must NOT be called
+  // Case 1: Not reproduced (or contradictory status: "reproduced" with passed: 1, total: 1) -> fixBug must NOT be called
   let fixCalled = false;
   const reportNotRepro = {
     id: "aa11bb22",
@@ -142,7 +211,7 @@ test("pipeline stops at not_reproduced without attempting fix, and runs RED -> G
       analyzeVideo: async () => mockAnalysis,
       reproduceBug: async () => ({
         reproduceResult: {
-          status: "not_reproduced",
+          status: "reproduced", // contradictory! 1/1 passed
           repro_test: "test('repro', async () => {});",
           tests: { passed: 1, total: 1 },
           notes: "Test passed on first run",

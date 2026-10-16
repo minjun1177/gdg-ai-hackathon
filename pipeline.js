@@ -11,7 +11,8 @@ const VERIFY_PY_CONTENT = fs.readFileSync(VERIFY_PY_PATH, "utf-8");
 
 export const LEAD_MODEL = "gemini-4-argon";
 export const MANAGED_AGENT = "antigravity-preview-09-2026";
-const GITHUB_CREDENTIAL_ID = "bugreel-github-token";
+export const GITHUB_API_CREDENTIAL_ID = "bugreel-github-api";
+export const GITHUB_GIT_CREDENTIAL_ID = "bugreel-github-git";
 
 export const ANALYSIS_JSON_SCHEMA = {
   type: "object",
@@ -141,7 +142,8 @@ export function validateAnalysisResult(obj) {
 }
 
 /**
- * Validates ReproduceResult contract per AGENTS.md 5.4.
+ * Validates ReproduceResult contract per AGENTS.md 5.4 and cross-checks test counts.
+ * A bug counts as reproduced ONLY if total > 0 and passed < total (at least one failing test).
  * @param {any} obj
  */
 export function validateReproduceResult(obj) {
@@ -149,20 +151,33 @@ export function validateReproduceResult(obj) {
     throw new Error("ReproduceResult must be a JSON object");
   }
   const validStatus = new Set(["reproduced", "not_reproduced", "error"]);
-  const status = validStatus.has(obj.status) ? obj.status : "error";
+  let status = validStatus.has(obj.status) ? obj.status : "error";
   const repro_test = typeof obj.repro_test === "string" ? obj.repro_test : "";
-  const passed = Number(obj.tests?.passed ?? 0);
-  const total = Number(obj.tests?.total ?? 0);
+  const rawPassed = Number(obj.tests?.passed ?? 0);
+  const rawTotal = Number(obj.tests?.total ?? 0);
+  const passed = Number.isFinite(rawPassed) && rawPassed >= 0 ? rawPassed : 0;
+  const total = Number.isFinite(rawTotal) && rawTotal >= 0 ? rawTotal : 0;
+
+  let notes = obj.notes ? String(obj.notes) : undefined;
+  if (status === "reproduced") {
+    if (total <= 0) {
+      status = "error";
+      notes = notes || "Playwright ran 0 tests during reproduction.";
+    } else if (passed >= total) {
+      status = "not_reproduced";
+      notes =
+        notes ||
+        "Reproduction test passed instead of failing; bug was not reproduced.";
+    }
+  }
+
   const result = {
     status,
     repro_test,
-    tests: {
-      passed: Number.isFinite(passed) ? passed : 0,
-      total: Number.isFinite(total) ? total : 0,
-    },
+    tests: { passed, total },
   };
   if (obj.failure) result.failure = String(obj.failure);
-  if (obj.notes) result.notes = String(obj.notes);
+  if (notes) result.notes = notes;
   return result;
 }
 
@@ -205,7 +220,8 @@ export function detectTestFilesChanged(diff) {
 }
 
 /**
- * Validates FixResult contract per AGENTS.md 5.4 and applies server-side test_files_changed guard.
+ * Validates FixResult contract per AGENTS.md 5.4, cross-checks test counts
+ * (passed === total && total > 0), and applies server-side test_files_changed guard.
  * @param {any} obj
  * @param {string} reportId
  */
@@ -213,10 +229,14 @@ export function validateFixResult(obj, reportId) {
   if (!obj || typeof obj !== "object") {
     throw new Error("FixResult must be a JSON object");
   }
-  const status = obj.status === "fixed" ? "fixed" : "failed";
   const attempts = Number(obj.attempts ?? 1);
-  const passed = Number(obj.tests?.passed ?? 0);
-  const total = Number(obj.tests?.total ?? 0);
+  const rawPassed = Number(obj.tests?.passed ?? 0);
+  const rawTotal = Number(obj.tests?.total ?? 0);
+  const passed = Number.isFinite(rawPassed) && rawPassed >= 0 ? rawPassed : 0;
+  const total = Number.isFinite(rawTotal) && rawTotal >= 0 ? rawTotal : 0;
+  const testsAllPassed = total > 0 && passed === total;
+  const status = obj.status === "fixed" && testsAllPassed ? "fixed" : "failed";
+
   const diff = typeof obj.diff === "string" ? obj.diff : "";
   const branch =
     typeof obj.branch === "string" && obj.branch.trim()
@@ -227,17 +247,16 @@ export function validateFixResult(obj, reportId) {
   return {
     status,
     attempts: Number.isFinite(attempts) && attempts > 0 ? attempts : 1,
-    tests: {
-      passed: Number.isFinite(passed) ? passed : 0,
-      total: Number.isFinite(total) ? total : 0,
-    },
+    tests: { passed, total },
     branch,
     diff,
     test_files_changed: Boolean(obj.test_files_changed) || serverDetectedTestChange,
     summary:
       typeof obj.summary === "string" && obj.summary.trim()
         ? obj.summary.trim()
-        : "Fixed the reported issue verified by Playwright reproduction test.",
+        : status === "fixed"
+        ? "Fixed the reported issue verified by Playwright reproduction test."
+        : "Failed to verify all Playwright tests.",
   };
 }
 
@@ -302,88 +321,103 @@ function getGenAIClient() {
   });
 }
 
-let credentialRegistered = false;
+let credentialsRegistered = false;
 
 /**
- * Registers GITHUB_TOKEN in the Gemini Credentials API so it never enters the model context.
+ * Upserts a single credential in the Gemini Credentials API.
  * @param {GoogleGenAI} ai
- * @returns {Promise<string|null>}
+ * @param {object} spec
  */
-async function ensureGithubCredential(ai) {
-  const githubToken = process.env.GITHUB_TOKEN;
-  if (!githubToken || !ai.credentials) return null;
-  if (credentialRegistered) return GITHUB_CREDENTIAL_ID;
-
+async function upsertCredential(ai, spec) {
   try {
-    await ai.credentials.create({
-      id: GITHUB_CREDENTIAL_ID,
-      type: "bearer_token",
-      token: githubToken,
-    });
-    credentialRegistered = true;
-    return GITHUB_CREDENTIAL_ID;
+    await ai.credentials.create(spec);
+    return spec.id;
   } catch (err) {
     const msg = String(err?.message || err || "");
     if (/already exists|409|ALREADY_EXISTS/i.test(msg)) {
       try {
-        await ai.credentials.delete(GITHUB_CREDENTIAL_ID);
-        await ai.credentials.create({
-          id: GITHUB_CREDENTIAL_ID,
-          type: "bearer_token",
-          token: githubToken,
-        });
+        await ai.credentials.delete(spec.id);
+        await ai.credentials.create(spec);
       } catch {
-        // Use existing credential if delete/recreate is not needed
+        // Existing credential can still be referenced by ID
       }
-      credentialRegistered = true;
-      return GITHUB_CREDENTIAL_ID;
+      return spec.id;
     }
     return null;
   }
 }
 
 /**
- * Builds the remote sandbox environment configuration with network allowlist and GitHub credential proxy rules.
- * @param {string|null} credentialId
+ * Registers GITHUB_TOKEN in the Gemini Credentials API so it never enters the model context
+ * or request payload (`transform` headers).
+ * - `bugreel-github-api`: Bearer token for `api.github.com`
+ * - `bugreel-github-git`: Basic auth (`x-oauth-basic:<token>`) for `git push` to `github.com`
+ * @param {GoogleGenAI} ai
+ * @returns {Promise<{ apiCredentialId: string|null, gitCredentialId: string|null }|null>}
  */
-function buildAgentEnvironment(credentialId) {
+export async function ensureGithubCredentials(ai) {
   const githubToken = process.env.GITHUB_TOKEN;
-  const allowlist = [];
-
-  if (githubToken) {
-    const basicToken = Buffer.from(`x-oauth-basic:${githubToken}`).toString("base64");
-    const githubRule = {
-      domain: "github.com",
-      transform: {
-        Authorization: `Basic ${basicToken}`,
-      },
+  if (!githubToken || !ai?.credentials) return null;
+  if (credentialsRegistered) {
+    return {
+      apiCredentialId: GITHUB_API_CREDENTIAL_ID,
+      gitCredentialId: GITHUB_GIT_CREDENTIAL_ID,
     };
-    if (credentialId) {
-      githubRule.credential = credentialId;
-    }
-    allowlist.push(githubRule);
-
-    const apiGithubRule = { domain: "api.github.com" };
-    if (credentialId) {
-      apiGithubRule.credential = credentialId;
-    } else {
-      apiGithubRule.transform = {
-        Authorization: `Bearer ${githubToken}`,
-      };
-    }
-    allowlist.push(apiGithubRule);
-  } else {
-    allowlist.push({ domain: "github.com" });
-    allowlist.push({ domain: "api.github.com" });
   }
 
-  allowlist.push(
+  const basicToken = Buffer.from(`x-oauth-basic:${githubToken}`).toString(
+    "base64"
+  );
+
+  const apiCredentialId = await upsertCredential(ai, {
+    id: GITHUB_API_CREDENTIAL_ID,
+    type: "bearer_token",
+    token: githubToken,
+  });
+
+  const gitCredentialId = await upsertCredential(ai, {
+    id: GITHUB_GIT_CREDENTIAL_ID,
+    type: "bearer_token",
+    token: basicToken,
+    header_name: "Authorization",
+    prefix: "Basic ",
+  });
+
+  if (apiCredentialId || gitCredentialId) {
+    credentialsRegistered = true;
+  }
+
+  return { apiCredentialId, gitCredentialId };
+}
+
+/**
+ * Builds the remote sandbox environment configuration with an explicit network allowlist
+ * (no wildcard `*`) and Gemini Credentials API references (never inline raw tokens).
+ * @param {{ apiCredentialId?: string|null, gitCredentialId?: string|null }|null} [credentials]
+ */
+export function buildAgentEnvironment(credentials = null) {
+  const githubRule = { domain: "github.com" };
+  if (credentials?.gitCredentialId) {
+    githubRule.credential = credentials.gitCredentialId;
+  }
+
+  const apiGithubRule = { domain: "api.github.com" };
+  if (credentials?.apiCredentialId) {
+    apiGithubRule.credential = credentials.apiCredentialId;
+  }
+
+  const allowlist = [
+    githubRule,
+    apiGithubRule,
+    { domain: "codeload.github.com" },
+    { domain: "objects.githubusercontent.com" },
     { domain: "registry.npmjs.org" },
     { domain: "*.npmjs.org" },
     { domain: "playwright.azureedge.net" },
     { domain: "cdn.playwright.dev" },
-    { domain: "*" }
-  );
+    { domain: "playwright-akamai.azureedge.net" },
+    { domain: "playwright-verizon.azureedge.net" },
+  ];
 
   return {
     type: "remote",
@@ -516,8 +550,8 @@ Return ONLY valid JSON matching the schema.`;
  */
 export async function reproduceBug(report, aiClient) {
   const ai = aiClient || getGenAIClient();
-  const credentialId = await ensureGithubCredential(ai);
-  const environment = buildAgentEnvironment(credentialId);
+  const credentials = await ensureGithubCredentials(ai);
+  const environment = buildAgentEnvironment(credentials);
   const prompt = buildReproducePrompt({
     repoUrl: report.repoUrl,
     analysis: report.analysis,
@@ -544,7 +578,7 @@ export async function reproduceBug(report, aiClient) {
       agent_config: { type: "antigravity", model: LEAD_MODEL },
       input:
         'Your previous response was not valid JSON. Return ONLY the single JSON object: {"status":"reproduced"|"not_reproduced"|"error","repro_test":"<file content>","tests":{"passed":n,"total":m},"failure":"<assertion message>","notes":"<short>"}',
-      environment: completed.environment_id || "remote",
+      environment: completed.environment_id || environment,
       previous_interaction_id: completed.id,
       background: true,
     });
@@ -568,7 +602,8 @@ export async function reproduceBug(report, aiClient) {
  */
 export async function fixBug(report, context = {}, aiClient) {
   const ai = aiClient || getGenAIClient();
-  const credentialId = await ensureGithubCredential(ai);
+  const credentials = await ensureGithubCredentials(ai);
+  const defaultEnv = buildAgentEnvironment(credentials);
   const prompt = buildFixPrompt({
     repoUrl: report.repoUrl,
     reproTest: report.reproduce?.repro_test || "",
@@ -580,7 +615,7 @@ export async function fixBug(report, context = {}, aiClient) {
     agent_config: { type: "antigravity", model: LEAD_MODEL },
     input: prompt,
     background: true,
-    environment: context.environmentId || buildAgentEnvironment(credentialId),
+    environment: context.environmentId || defaultEnv,
   };
   if (context.environmentId && context.interactionId) {
     createParams.previous_interaction_id = context.interactionId;
@@ -599,9 +634,7 @@ export async function fixBug(report, context = {}, aiClient) {
       agent_config: { type: "antigravity", model: LEAD_MODEL },
       input: `Your previous response was not valid JSON. Return ONLY the single JSON object: {"status":"fixed"|"failed","attempts":1,"tests":{"passed":1,"total":1},"branch":"bugreel/fix-${report.id}","diff":"<unified diff>","test_files_changed":false,"summary":"<one paragraph>"}`,
       environment:
-        completed.environment_id ||
-        context.environmentId ||
-        buildAgentEnvironment(credentialId),
+        completed.environment_id || context.environmentId || defaultEnv,
       previous_interaction_id: completed.id,
       background: true,
     });
@@ -637,8 +670,15 @@ export async function createGithubPullRequest(report, reviewPageUrl) {
       "GITHUB_TOKEN is not configured. Set GITHUB_TOKEN in Secret Manager or download the diff instead."
     );
   }
-  if (!report.fix || report.fix.status !== "fixed") {
-    throw new Error("Cannot open a pull request before the bug is fixed.");
+  if (
+    !report.fix ||
+    report.fix.status !== "fixed" ||
+    !(report.fix.tests?.total > 0) ||
+    report.fix.tests?.passed !== report.fix.tests?.total
+  ) {
+    throw new Error(
+      "Cannot open a pull request before the bug is fixed and all tests pass."
+    );
   }
 
   const { owner, repo } = parseGithubOwnerRepo(report.repoUrl);
@@ -769,8 +809,12 @@ export async function runBugReelPipeline(report, emitEvent, overrides = {}) {
       "reproducing",
       "Cloning repository and running Playwright reproduction test in sandbox..."
     );
-    const { reproduceResult, environmentId, interactionId } =
-      await reproduceFn(report);
+    const {
+      reproduceResult: rawReproduceResult,
+      environmentId,
+      interactionId,
+    } = await reproduceFn(report);
+    const reproduceResult = validateReproduceResult(rawReproduceResult);
     report.reproduce = reproduceResult;
     emitEvent(report.id, {
       type: "tests",
@@ -811,7 +855,8 @@ export async function runBugReelPipeline(report, emitEvent, overrides = {}) {
       "fixing",
       "Fixing application code and verifying all Playwright tests..."
     );
-    const fixResult = await fixFn(report, { environmentId, interactionId });
+    const rawFixResult = await fixFn(report, { environmentId, interactionId });
+    const fixResult = validateFixResult(rawFixResult, report.id);
     report.fix = fixResult;
     emitEvent(report.id, {
       type: "tests",

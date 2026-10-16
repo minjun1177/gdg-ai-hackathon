@@ -257,12 +257,17 @@ app.post("/api/reports/:id/approve", async (req, res) => {
     return res.json({ prUrl: report.prUrl });
   }
 
+  const testsAllPassed =
+    report.fix?.tests?.total > 0 &&
+    report.fix?.tests?.passed === report.fix?.tests?.total;
+
   if (
     (report.stage !== "fixed" && report.stage !== "approved") ||
-    report.fix?.status !== "fixed"
+    report.fix?.status !== "fixed" ||
+    !testsAllPassed
   ) {
     return res.status(400).json({
-      error: `Report is in stage "${report.stage}" and cannot be approved until stage is "fixed".`,
+      error: `Report is in stage "${report.stage}" and cannot be approved until stage is "fixed" with all tests passing.`,
     });
   }
 

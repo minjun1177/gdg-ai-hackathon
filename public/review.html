@@ -767,13 +767,19 @@
         }
       }
 
+      const canApprove =
+        data.stage === "fixed" &&
+        data.fix?.status === "fixed" &&
+        data.fix?.tests?.total > 0 &&
+        data.fix?.tests?.passed === data.fix?.tests?.total;
+
       if (data.prUrl) {
         approveBtn.disabled = true;
         approveBtn.textContent = "Pull Request Opened";
         prLinkAnchor.href = data.prUrl;
         prLinkAnchor.textContent = data.prUrl;
         prLinkBox.style.display = "block";
-      } else if (data.stage === "fixed") {
+      } else if (canApprove) {
         approveBtn.disabled = false;
         approveBtn.textContent = "Approve & Open Pull Request";
       } else {
