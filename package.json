@@ -1,0 +1,19 @@
+{
+  "name": "bugreel",
+  "version": "1.0.0",
+  "description": "BugReel turns a screen-recorded bug report into a failing reproduction test and a verified fix, ready for a developer to approve.",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@google/genai": "^2.30.0",
+    "express": "^4.21.2",
+    "multer": "^1.4.5-lts.2"
+  }
+}
