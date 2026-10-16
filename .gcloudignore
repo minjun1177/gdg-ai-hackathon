@@ -5,3 +5,8 @@ uploads/
 .env.*
 *.log
 HUMANS.md
+RULE.md
+demo/
+*.pem
+*.key
+credentials*.json

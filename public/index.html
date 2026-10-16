@@ -117,7 +117,7 @@
 
       <div class="field">
         <label for="repoInput">3. Target Repository URL</label>
-        <input id="repoInput" name="repoUrl" type="url" placeholder="https://github.com/<username>/bugreel-demo-todo" required />
+        <input id="repoInput" name="repoUrl" type="url" placeholder="https://github.com/minjun1177/bugreel-demo-todo" value="https://github.com/minjun1177/bugreel-demo-todo" required />
       </div>
 
       <button id="submitBtn" type="submit">Submit Bug Video &rarr;</button>
@@ -131,13 +131,20 @@
     const form = document.getElementById("reportForm");
     const submitBtn = document.getElementById("submitBtn");
     const errorBox = document.getElementById("errorBox");
+    let currentPreviewUrl = null;
 
     videoInput.addEventListener("change", () => {
+      if (currentPreviewUrl) {
+        URL.revokeObjectURL(currentPreviewUrl);
+        currentPreviewUrl = null;
+      }
       const file = videoInput.files[0];
       if (file) {
-        videoPreview.src = URL.createObjectURL(file);
+        currentPreviewUrl = URL.createObjectURL(file);
+        videoPreview.src = currentPreviewUrl;
         videoPreview.style.display = "block";
       } else {
+        videoPreview.removeAttribute("src");
         videoPreview.style.display = "none";
       }
     });
@@ -154,7 +161,13 @@
           method: "POST",
           body: formData,
         });
-        const data = await res.json();
+        const text = await res.text();
+        let data = {};
+        try {
+          data = JSON.parse(text);
+        } catch {
+          data = { error: text || `Server error (${res.status})` };
+        }
         if (!res.ok) throw new Error(data.error || "Upload failed");
         window.location.href = `/review/${data.id}`;
       } catch (err) {

@@ -53,21 +53,77 @@
     </div>
   </div>
   <script>
-    const reportId = window.location.pathname.split("/").pop();
+    const reportId = window.location.pathname.split("/").filter(Boolean).pop();
     const stageText = document.getElementById("stageText");
     const reportJson = document.getElementById("reportJson");
+    const TERMINAL_STAGES = new Set([
+      "not_reproduced",
+      "fixed",
+      "fix_failed",
+      "pr_opened",
+      "error",
+    ]);
+
+    let pollTimer = null;
+    let es = null;
+
+    function renderReport(data) {
+      if (!data) return;
+      stageText.textContent = data.stage || "unknown";
+      reportJson.textContent = JSON.stringify(data, null, 2);
+      if (TERMINAL_STAGES.has(data.stage)) {
+        if (es) {
+          es.close();
+          es = null;
+        }
+        if (pollTimer) {
+          clearInterval(pollTimer);
+          pollTimer = null;
+        }
+      }
+    }
 
     async function fetchReport() {
-      const res = await fetch(`/api/reports/${reportId}`);
-      if (!res.ok) return;
-      const data = await res.json();
-      stageText.textContent = data.stage;
-      reportJson.textContent = JSON.stringify(data, null, 2);
+      try {
+        const res = await fetch(`/api/reports/${reportId}`);
+        if (!res.ok) {
+          stageText.textContent = `Not found (${res.status})`;
+          return;
+        }
+        const data = await res.json();
+        renderReport(data);
+      } catch (err) {
+        stageText.textContent = `Connection error: ${err.message}`;
+      }
+    }
+
+    function startPollingFallback() {
+      if (!pollTimer) {
+        pollTimer = setInterval(fetchReport, 2000);
+      }
     }
 
     fetchReport();
-    const es = new EventSource(`/api/reports/${reportId}/events`);
-    es.onmessage = () => fetchReport();
+    startPollingFallback();
+
+    if (window.EventSource) {
+      es = new EventSource(`/api/reports/${reportId}/events`);
+      es.onmessage = (evt) => {
+        try {
+          const event = JSON.parse(evt.data);
+          if (event.type === "result" && event.report) {
+            renderReport(event.report);
+          } else {
+            fetchReport();
+          }
+        } catch {
+          fetchReport();
+        }
+      };
+      es.onerror = () => {
+        startPollingFallback();
+      };
+    }
   </script>
 </body>
 </html>

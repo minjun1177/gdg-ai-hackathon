@@ -55,12 +55,16 @@ def main():
     failed_list = []
     walk_suites(data.get("suites", []), passed_list, failed_list)
 
+    for top_err in data.get("errors", []) or []:
+        msg = top_err.get("message") if isinstance(top_err, dict) else str(top_err)
+        failed_list.append(f"runner error: {msg[:120]}")
+
     passed = len(passed_list)
     total = passed + len(failed_list)
     output = {"passed": passed, "total": total, "failed": failed_list}
     print(json.dumps(output))
 
-    if total > 0 and passed == total:
+    if total > 0 and passed == total and not data.get("errors"):
         sys.exit(0)
     sys.exit(1)
 

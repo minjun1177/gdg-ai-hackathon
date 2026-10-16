@@ -5,3 +5,8 @@ uploads/
 *.log
 .DS_Store
 report.json
+RULE.md
+HUMANS.md
+*.pem
+*.key
+credentials*.json

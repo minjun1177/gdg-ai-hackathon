@@ -19,10 +19,13 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
+const ALLOWED_EXTS = new Set([".mp4", ".webm", ".mov"]);
+
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, uploadsDir),
   filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname || ".mp4").toLowerCase();
+    const rawExt = path.extname(file.originalname || "").toLowerCase();
+    const ext = ALLOWED_EXTS.has(rawExt) ? rawExt : ".mp4";
     cb(null, `${Date.now()}-${crypto.randomBytes(4).toString("hex")}${ext}`);
   },
 });
@@ -38,16 +41,29 @@ const upload = multer({
   limits: { fileSize: 50 * 1024 * 1024 }, // 50 MB
   fileFilter: (_req, file, cb) => {
     const ext = path.extname(file.originalname || "").toLowerCase();
-    if (
-      ALLOWED_MIMES.has(file.mimetype) ||
-      [".mp4", ".webm", ".mov"].includes(ext)
-    ) {
+    if (ALLOWED_MIMES.has(file.mimetype) || ALLOWED_EXTS.has(ext)) {
       cb(null, true);
     } else {
       cb(new Error("Only mp4, webm, and mov video files are allowed."));
     }
   },
 });
+
+export function isValidGithubRepoUrl(urlStr) {
+  try {
+    const parsed = new URL(urlStr);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      return false;
+    }
+    if (parsed.hostname !== "github.com") {
+      return false;
+    }
+    const parts = parsed.pathname.replace(/^\/+|\/+$/g, "").split("/");
+    return parts.length >= 2 && Boolean(parts[0]) && Boolean(parts[1]);
+  } catch {
+    return false;
+  }
+}
 
 /**
  * In-memory state store (no database per security rules)
@@ -66,7 +82,11 @@ export function emitReportEvent(reportId, event) {
   if (!clients) return;
   const payload = `data: ${JSON.stringify(event)}\n\n`;
   for (const res of clients) {
-    res.write(payload);
+    try {
+      res.write(payload);
+    } catch {
+      clients.delete(res);
+    }
   }
 }
 
@@ -90,42 +110,58 @@ app.get("/review/:id", (_req, res) => {
 });
 
 // POST /api/reports -> Create report & start pipeline
-app.post("/api/reports", upload.single("video"), (req, res) => {
-  try {
-    const file = req.file;
-    const note = (req.body?.note || "").trim();
-    const repoUrl = (req.body?.repoUrl || "").trim();
-
-    if (!file) {
-      return res.status(400).json({ error: "Video file is required." });
-    }
-    if (!repoUrl) {
-      return res.status(400).json({ error: "Repository URL is required." });
+app.post("/api/reports", (req, res) => {
+  upload.single("video")(req, res, (uploadErr) => {
+    if (uploadErr) {
+      const status = uploadErr instanceof multer.MulterError ? 400 : 400;
+      return res
+        .status(status)
+        .json({ error: uploadErr.message || "Invalid video upload." });
     }
 
-    const id = crypto.randomBytes(4).toString("hex");
-    const report = {
-      id,
-      createdAt: new Date().toISOString(),
-      stage: "uploaded",
-      note,
-      repoUrl,
-      videoRef: `/uploads/${file.filename}`,
-      videoPath: file.path,
-      videoMimeType: file.mimetype || "video/mp4",
-    };
+    try {
+      const file = req.file;
+      const note = (req.body?.note || "").trim();
+      const repoUrl = (req.body?.repoUrl || "").trim();
 
-    reports.set(id, report);
-    emitReportEvent(id, {
-      type: "stage",
-      stage: "uploaded",
-      message: "Bug video uploaded. Pipeline ready.",
-    });
+      if (!file) {
+        return res.status(400).json({ error: "Video file is required." });
+      }
+      if (!repoUrl || !isValidGithubRepoUrl(repoUrl)) {
+        fs.unlink(file.path, () => {});
+        return res.status(400).json({
+          error:
+            "A valid GitHub repository URL (https://github.com/<owner>/<repo>) is required.",
+        });
+      }
 
-    return res.status(201).json({ id });
-  } catch (err) {
-    return res.status(500).json({ error: err.message || "Upload failed" });
-  }
+      const id = crypto.randomBytes(4).toString("hex");
+      const report = {
+        id,
+        createdAt: new Date().toISOString(),
+        stage: "uploaded",
+        note,
+        repoUrl,
+        videoRef: `/uploads/${file.filename}`,
+        videoPath: file.path,
+        videoMimeType: file.mimetype || "video/mp4",
+      };
+
+      reports.set(id, report);
+      emitReportEvent(id, {
+        type: "stage",
+        stage: "uploaded",
+        message: "Bug video uploaded. Pipeline ready.",
+      });
+
+      return res.status(201).json({ id });
+    } catch (err) {
+      if (req.file?.path) {
+        fs.unlink(req.file.path, () => {});
+      }
+      return res.status(500).json({ error: err.message || "Upload failed" });
+    }
+  });
 });
 
 // GET /api/reports/:id -> Full report JSON
@@ -147,8 +183,9 @@ app.get("/api/reports/:id/events", (req, res) => {
   }
 
   res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders?.();
 
   const { videoPath, ...publicReport } = report;
@@ -161,8 +198,23 @@ app.get("/api/reports/:id/events", (req, res) => {
   }
   sseClients.get(id).add(res);
 
+  const heartbeat = setInterval(() => {
+    try {
+      res.write(": keep-alive\n\n");
+    } catch {
+      clearInterval(heartbeat);
+    }
+  }, 15000);
+
   req.on("close", () => {
-    sseClients.get(id)?.delete(res);
+    clearInterval(heartbeat);
+    const set = sseClients.get(id);
+    if (set) {
+      set.delete(res);
+      if (set.size === 0) {
+        sseClients.delete(id);
+      }
+    }
   });
 });
 
@@ -177,6 +229,11 @@ app.post("/api/reports/:id/approve", async (req, res) => {
     .json({ error: "PR creation will be enabled in Step 6." });
 });
 
-app.listen(PORT, () => {
-  console.log(`BugReel server listening on http://localhost:${PORT}`);
-});
+export { app };
+
+if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
+  app.listen(PORT, () => {
+    console.log(`BugReel server listening on http://localhost:${PORT}`);
+  });
+}
+
