@@ -4,6 +4,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import express from "express";
 import multer from "multer";
+import {
+  createGithubPullRequest,
+  runBugReelPipeline,
+} from "./pipeline.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -109,13 +113,12 @@ app.get("/review/:id", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "review.html"));
 });
 
-// POST /api/reports -> Create report & start pipeline
+// POST /api/reports -> Create report & start pipeline in background
 app.post("/api/reports", (req, res) => {
   upload.single("video")(req, res, (uploadErr) => {
     if (uploadErr) {
-      const status = uploadErr instanceof multer.MulterError ? 400 : 400;
       return res
-        .status(status)
+        .status(400)
         .json({ error: uploadErr.message || "Invalid video upload." });
     }
 
@@ -151,8 +154,16 @@ app.post("/api/reports", (req, res) => {
       emitReportEvent(id, {
         type: "stage",
         stage: "uploaded",
-        message: "Bug video uploaded. Pipeline ready.",
+        message: "Bug video uploaded. Starting BugReel pipeline...",
       });
+
+      if (process.env.BUGREEL_DISABLE_AUTO_RUN !== "1") {
+        setImmediate(() => {
+          runBugReelPipeline(report, emitReportEvent).catch((err) => {
+            console.error(`Pipeline error for report ${id}:`, err);
+          });
+        });
+      }
 
       return res.status(201).json({ id });
     } catch (err) {
@@ -172,6 +183,23 @@ app.get("/api/reports/:id", (req, res) => {
   }
   const { videoPath, ...publicReport } = report;
   return res.json(publicReport);
+});
+
+// GET /api/reports/:id/diff -> Download unified diff as patch file
+app.get("/api/reports/:id/diff", (req, res) => {
+  const report = reports.get(req.params.id);
+  if (!report) {
+    return res.status(404).json({ error: "Report not found" });
+  }
+  if (!report.fix?.diff) {
+    return res.status(404).json({ error: "No diff available for this report" });
+  }
+  res.setHeader("Content-Type", "text/x-diff; charset=utf-8");
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="bugreel-fix-${report.id}.diff"`
+  );
+  return res.send(report.fix.diff);
 });
 
 // GET /api/reports/:id/events -> SSE stream of ReportEvent
@@ -224,9 +252,54 @@ app.post("/api/reports/:id/approve", async (req, res) => {
   if (!report) {
     return res.status(404).json({ error: "Report not found" });
   }
-  return res
-    .status(501)
-    .json({ error: "PR creation will be enabled in Step 6." });
+
+  if (report.prUrl) {
+    return res.json({ prUrl: report.prUrl });
+  }
+
+  if (
+    (report.stage !== "fixed" && report.stage !== "approved") ||
+    report.fix?.status !== "fixed"
+  ) {
+    return res.status(400).json({
+      error: `Report is in stage "${report.stage}" and cannot be approved until stage is "fixed".`,
+    });
+  }
+
+  try {
+    report.stage = "approved";
+    emitReportEvent(report.id, {
+      type: "stage",
+      stage: "approved",
+      message: "Developer approved fix. Opening GitHub Pull Request...",
+    });
+
+    const protocol = req.headers["x-forwarded-proto"] || req.protocol || "https";
+    const host = req.get("host") || `localhost:${PORT}`;
+    const reviewPageUrl = `${protocol}://${host}/review/${report.id}`;
+
+    const prUrl = await createGithubPullRequest(report, reviewPageUrl);
+    report.prUrl = prUrl;
+    report.stage = "pr_opened";
+
+    const { videoPath, ...publicReport } = report;
+    emitReportEvent(report.id, {
+      type: "stage",
+      stage: "pr_opened",
+      message: `Pull Request opened: ${prUrl}`,
+    });
+    emitReportEvent(report.id, {
+      type: "result",
+      report: publicReport,
+    });
+
+    return res.json({ prUrl });
+  } catch (err) {
+    report.stage = "fixed"; // revert to fixed so developer can retry or download diff
+    return res.status(500).json({
+      error: err.message || "Failed to open Pull Request.",
+    });
+  }
 });
 
 export { app };

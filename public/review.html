@@ -8,12 +8,17 @@
     :root {
       --bg: #0b0f19;
       --card: #131b2e;
+      --card-alt: #0f1626;
       --border: #26324d;
       --text: #f8fafc;
       --muted: #94a3b8;
       --red: #ef4444;
+      --red-bg: rgba(239, 68, 68, 0.14);
       --green: #22c55e;
+      --green-bg: rgba(34, 197, 94, 0.14);
       --blue: #3b82f6;
+      --amber: #f59e0b;
+      --amber-bg: rgba(245, 158, 11, 0.16);
     }
     * { box-sizing: border-box; }
     body {
@@ -21,41 +26,515 @@
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       background: var(--bg);
       color: var(--text);
-      padding: 2rem;
+      padding: 1.75rem 2rem 3rem;
+      line-height: 1.5;
     }
-    .container { max-width: 1200px; margin: 0 auto; }
-    h1 { margin-top: 0; }
-    .card {
+    .container { max-width: 1320px; margin: 0 auto; }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.9rem;
+    }
+    .brand a {
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 0.95rem;
+      border: 1px solid var(--border);
+      padding: 0.4rem 0.75rem;
+      border-radius: 8px;
+    }
+    .brand a:hover { color: var(--text); border-color: var(--blue); }
+    h1 { margin: 0; font-size: 1.85rem; letter-spacing: -0.02em; }
+    .repo-pill {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.95rem;
+      color: #cbd5e1;
+      background: var(--card);
+      border: 1px solid var(--border);
+      padding: 0.45rem 0.9rem;
+      border-radius: 999px;
+      text-decoration: none;
+    }
+
+    /* Stage Tracker */
+    .stage-tracker {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 0.75rem;
+      margin-bottom: 1.5rem;
+    }
+    .step-node {
+      background: var(--card);
+      border: 2px solid var(--border);
+      border-radius: 12px;
+      padding: 0.9rem 1rem;
+      font-weight: 700;
+      font-size: 1.02rem;
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      color: var(--muted);
+      transition: all 0.2s ease;
+    }
+    .step-node .dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: var(--border);
+      flex-shrink: 0;
+    }
+    .step-node.active {
+      border-color: var(--blue);
+      color: var(--text);
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+    }
+    .step-node.active .dot {
+      background: var(--blue);
+      box-shadow: 0 0 10px var(--blue);
+    }
+    .step-node.done {
+      border-color: #334155;
+      color: #e2e8f0;
+    }
+    .step-node.done .dot { background: var(--blue); }
+    .step-node.red {
+      border-color: var(--red);
+      background: var(--red-bg);
+      color: #fecaca;
+    }
+    .step-node.red .dot {
+      background: var(--red);
+      box-shadow: 0 0 10px var(--red);
+    }
+    .step-node.green {
+      border-color: var(--green);
+      background: var(--green-bg);
+      color: #bbf7d0;
+    }
+    .step-node.green .dot {
+      background: var(--green);
+      box-shadow: 0 0 10px var(--green);
+    }
+
+    .status-banner {
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: 12px;
-      padding: 1.5rem;
+      padding: 1rem 1.25rem;
+      margin-bottom: 1.5rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 1.1rem;
+      gap: 1rem;
+    }
+    .status-banner.not-reproduced {
+      border-color: var(--amber);
+      background: var(--amber-bg);
+      color: #fde68a;
+    }
+    .status-banner.error {
+      border-color: var(--red);
+      background: var(--red-bg);
+      color: #fecaca;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 1.5rem;
       margin-bottom: 1.5rem;
     }
-    pre {
-      background: #090d16;
-      padding: 1rem;
-      border-radius: 8px;
-      overflow-x: auto;
-      font-size: 0.95rem;
+    @media (max-width: 960px) {
+      .grid-2 { grid-template-columns: 1fr; }
+      .stage-tracker { grid-template-columns: 1fr; }
     }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.4rem 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    .card h2 {
+      margin: 0 0 1rem 0;
+      font-size: 1.25rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+    }
+
+    /* Video & Red Bug Timestamp Marker */
+    video {
+      width: 100%;
+      max-height: 380px;
+      background: #000;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      display: block;
+    }
+    .timeline-wrap {
+      margin-top: 0.85rem;
+      background: var(--card-alt);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.75rem 1rem;
+    }
+    .timeline-track {
+      position: relative;
+      height: 12px;
+      background: #1e293b;
+      border-radius: 999px;
+      margin: 0.5rem 0;
+      cursor: pointer;
+    }
+    .timeline-progress {
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 0%;
+      background: var(--blue);
+      border-radius: 999px;
+      pointer-events: none;
+    }
+    .bug-marker {
+      position: absolute;
+      top: -6px;
+      width: 24px;
+      height: 24px;
+      margin-left: -12px;
+      border-radius: 50%;
+      background: var(--red);
+      border: 3px solid #fff;
+      box-shadow: 0 0 12px var(--red);
+      cursor: pointer;
+      display: none;
+      z-index: 3;
+      title: "Jump to bug timestamp";
+    }
+    .bug-marker-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      background: var(--red-bg);
+      color: #fecaca;
+      border: 1px solid var(--red);
+      border-radius: 8px;
+      padding: 0.35rem 0.75rem;
+      font-weight: 700;
+      font-size: 0.95rem;
+      cursor: pointer;
+    }
+    .bug-marker-btn:hover { background: rgba(239, 68, 68, 0.28); }
+
+    /* Extracted Steps */
+    .steps-list {
+      list-style: none;
+      padding: 0;
+      margin: 0 0 1.1rem 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+    }
+    .step-item {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.65rem 0.85rem;
+      background: var(--card-alt);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 1rem;
+    }
+    .step-item:hover { border-color: var(--blue); }
+    .time-badge {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-weight: 700;
+      color: #93c5fd;
+      background: rgba(59, 130, 246, 0.15);
+      padding: 0.2rem 0.55rem;
+      border-radius: 6px;
+      flex-shrink: 0;
+    }
+    .exp-act-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.75rem;
+    }
+    .exp-box, .act-box {
+      padding: 0.85rem 1rem;
+      border-radius: 10px;
+      font-size: 1rem;
+    }
+    .exp-box {
+      background: var(--green-bg);
+      border: 1px solid rgba(34, 197, 94, 0.4);
+    }
+    .act-box {
+      background: var(--red-bg);
+      border: 1px solid rgba(239, 68, 68, 0.4);
+    }
+
+    /* Big Test Counter + Approval Row */
+    .counter-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    .test-counter-card {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      padding: 1.75rem;
+      border-radius: 14px;
+      border: 2px solid var(--border);
+      background: var(--card);
+    }
+    .test-counter-card.red {
+      border-color: var(--red);
+      background: var(--red-bg);
+    }
+    .test-counter-card.green {
+      border-color: var(--green);
+      background: var(--green-bg);
+    }
+    .counter-number {
+      font-size: 3.1rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    .test-counter-card.red .counter-number { color: #f87171; }
+    .test-counter-card.green .counter-number { color: #4ade80; }
+
+    .approve-btn {
+      width: 100%;
+      padding: 1.1rem 1.5rem;
+      font-size: 1.2rem;
+      font-weight: 800;
+      color: #052e16;
+      background: var(--green);
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+    }
+    .approve-btn:disabled {
+      background: #1e293b;
+      color: var(--muted);
+      cursor: not-allowed;
+    }
+    .secondary-btn {
+      display: inline-block;
+      margin-top: 0.75rem;
+      padding: 0.65rem 1rem;
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--text);
+      background: var(--card-alt);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      text-decoration: none;
+    }
+    .pr-link-box {
+      margin-top: 1rem;
+      padding: 0.9rem 1rem;
+      background: var(--green-bg);
+      border: 1px solid var(--green);
+      border-radius: 10px;
+      font-weight: 700;
+      font-size: 1.1rem;
+      display: none;
+    }
+    .pr-link-box a { color: #86efac; word-break: break-all; }
+
+    /* Diff viewer */
+    .warning-badge {
+      display: none;
+      background: var(--amber-bg);
+      color: #fde68a;
+      border: 1px solid var(--amber);
+      padding: 0.45rem 0.85rem;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      font-weight: 700;
+    }
+    .diff-box {
+      background: #070a12;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1rem;
+      overflow-x: auto;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.95rem;
+      line-height: 1.55;
+    }
+    .diff-line { white-space: pre; padding: 0 0.4rem; border-radius: 3px; }
+    .diff-add { background: rgba(34, 197, 94, 0.18); color: #86efac; }
+    .diff-del { background: rgba(239, 68, 68, 0.18); color: #fca5a5; }
+    .diff-hunk { color: #93c5fd; font-weight: 700; }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>BugReel — Developer Review</h1>
-    <div class="card">
-      <strong>Stage:</strong> <span id="stageText">Loading...</span>
+    <header>
+      <div class="brand">
+        <a href="/">&larr; New Report</a>
+        <h1>BugReel — Developer Review</h1>
+      </div>
+      <a id="repoLink" class="repo-pill" href="#" target="_blank" rel="noopener noreferrer">Loading repository...</a>
+    </header>
+
+    <!-- 5-Step Stage Tracker -->
+    <div class="stage-tracker">
+      <div class="step-node" id="stAnalyze"><span class="dot"></span>1. Analyze Video</div>
+      <div class="step-node" id="stWriteRepro"><span class="dot"></span>2. Write Repro Test</div>
+      <div class="step-node" id="stReproduced"><span class="dot"></span>3. Reproduced (RED)</div>
+      <div class="step-node" id="stFixing"><span class="dot"></span>4. Fixing Code</div>
+      <div class="step-node" id="stPassed"><span class="dot"></span>5. Passed (GREEN)</div>
     </div>
+
+    <div class="status-banner" id="statusBanner">
+      <div>
+        <strong>Stage:</strong> <span id="stageText">Loading...</span>
+        <span id="stageMsg" style="color: var(--muted); margin-left: 0.6rem;"></span>
+      </div>
+      <span id="confidenceBadge" style="font-size: 0.95rem; color: var(--muted);"></span>
+    </div>
+
+    <div class="grid-2">
+      <!-- Video Player + Red Bug Marker -->
+      <div class="card" style="margin-bottom: 0;">
+        <h2>
+          <span>Screen Recording</span>
+          <button type="button" class="bug-marker-btn" id="jumpBugBtn" style="display: none;">
+            ● Bug at <span id="bugTimeLabel">0:00</span>
+          </button>
+        </h2>
+        <video id="bugVideo" controls playsinline></video>
+        <div class="timeline-wrap">
+          <div style="display: flex; justify-content: space-between; font-size: 0.9rem; color: var(--muted);">
+            <span id="curTimeLabel">0:00</span>
+            <span>Click the red marker to seek to bug timestamp</span>
+            <span id="durTimeLabel">0:00</span>
+          </div>
+          <div class="timeline-track" id="timelineTrack">
+            <div class="timeline-progress" id="timelineProgress"></div>
+            <div class="bug-marker" id="bugMarker" title="Seek to bug timestamp"></div>
+          </div>
+        </div>
+        <div id="reporterNoteBox" style="margin-top: 0.9rem; color: #cbd5e1; font-size: 1rem;"></div>
+      </div>
+
+      <!-- Extracted Steps + Expected vs Actual -->
+      <div class="card" style="margin-bottom: 0;">
+        <h2>Extracted Steps &amp; Assertion</h2>
+        <ul class="steps-list" id="stepsList">
+          <li style="color: var(--muted);">Waiting for Gemini 4 Argon video analysis...</li>
+        </ul>
+        <div class="exp-act-grid">
+          <div class="exp-box">
+            <strong style="color: #4ade80; display: block; margin-bottom: 0.25rem;">Expected</strong>
+            <span id="expectedText">—</span>
+          </div>
+          <div class="act-box">
+            <strong style="color: #f87171; display: block; margin-bottom: 0.25rem;">Actual (Bug)</strong>
+            <span id="actualText">—</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Big Test Counter & Human Approval Gate -->
+    <div class="counter-row">
+      <div class="test-counter-card" id="testCounterCard">
+        <div style="font-size: 1rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 0.4rem;">
+          Playwright Verification Signal (<code style="color: inherit;">verify.py</code>)
+        </div>
+        <div class="counter-number" id="testCounterValue">passed — / total —</div>
+        <div id="testSubcaption" style="margin-top: 0.5rem; color: var(--muted); font-size: 1rem;">
+          No fix without a failing reproduction test first.
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom: 0; display: flex; flex-direction: column; justify-content: center;">
+        <h2>Human Approval Gate</h2>
+        <p id="fixSummaryText" style="margin: 0 0 1rem 0; color: #cbd5e1; font-size: 1.05rem;">
+          Once the reproduction test and existing tests pass, approve to open a Pull Request.
+        </p>
+        <button id="approveBtn" class="approve-btn" disabled>Approve &amp; Open Pull Request</button>
+        <div>
+          <a id="downloadDiffBtn" class="secondary-btn" href="#" style="display: none;">Download Unified Diff (.diff)</a>
+        </div>
+        <div id="prLinkBox" class="pr-link-box">
+          Pull Request Opened: <a id="prLinkAnchor" href="#" target="_blank" rel="noopener noreferrer"></a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Unified Diff View -->
     <div class="card">
-      <strong>Report JSON:</strong>
-      <pre id="reportJson">Loading report...</pre>
+      <h2>
+        <span>Verified Fix Diff</span>
+        <span class="warning-badge" id="testChangedWarning">
+          ⚠️ Warning: Test files outside tests/repro.spec.js were modified!
+        </span>
+      </h2>
+      <div class="diff-box" id="diffBox">Waiting for verified fix diff...</div>
+    </div>
+
+    <!-- Reproduction Test Spec -->
+    <div class="card">
+      <h2>Generated Reproduction Test (<code>tests/repro.spec.js</code>)</h2>
+      <div class="diff-box" id="reproTestBox">Waiting for reproduction test...</div>
     </div>
   </div>
+
   <script>
     const reportId = window.location.pathname.split("/").filter(Boolean).pop();
+    const videoEl = document.getElementById("bugVideo");
+    const jumpBugBtn = document.getElementById("jumpBugBtn");
+    const bugTimeLabel = document.getElementById("bugTimeLabel");
+    const bugMarker = document.getElementById("bugMarker");
+    const timelineTrack = document.getElementById("timelineTrack");
+    const timelineProgress = document.getElementById("timelineProgress");
+    const curTimeLabel = document.getElementById("curTimeLabel");
+    const durTimeLabel = document.getElementById("durTimeLabel");
     const stageText = document.getElementById("stageText");
-    const reportJson = document.getElementById("reportJson");
+    const stageMsg = document.getElementById("stageMsg");
+    const statusBanner = document.getElementById("statusBanner");
+    const stepsList = document.getElementById("stepsList");
+    const expectedText = document.getElementById("expectedText");
+    const actualText = document.getElementById("actualText");
+    const testCounterCard = document.getElementById("testCounterCard");
+    const testCounterValue = document.getElementById("testCounterValue");
+    const testSubcaption = document.getElementById("testSubcaption");
+    const approveBtn = document.getElementById("approveBtn");
+    const downloadDiffBtn = document.getElementById("downloadDiffBtn");
+    const prLinkBox = document.getElementById("prLinkBox");
+    const prLinkAnchor = document.getElementById("prLinkAnchor");
+    const diffBox = document.getElementById("diffBox");
+    const reproTestBox = document.getElementById("reproTestBox");
+    const testChangedWarning = document.getElementById("testChangedWarning");
+    const fixSummaryText = document.getElementById("fixSummaryText");
+    const repoLink = document.getElementById("repoLink");
+    const reporterNoteBox = document.getElementById("reporterNoteBox");
+    const confidenceBadge = document.getElementById("confidenceBadge");
+
     const TERMINAL_STAGES = new Set([
       "not_reproduced",
       "fixed",
@@ -64,13 +543,243 @@
       "error",
     ]);
 
+    let bugSeconds = null;
+    let videoSrcLoaded = false;
     let pollTimer = null;
     let es = null;
 
+    function parseTimestampToSeconds(ts) {
+      if (!ts || typeof ts !== "string") return 0;
+      const parts = ts.trim().split(":").map(Number);
+      if (parts.some((n) => Number.isNaN(n))) return 0;
+      if (parts.length === 2) return parts[0] * 60 + parts[1];
+      if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+      return Number(parts[0]) || 0;
+    }
+
+    function formatSeconds(sec) {
+      if (!Number.isFinite(sec) || sec < 0) return "0:00";
+      const m = Math.floor(sec / 60);
+      const s = Math.floor(sec % 60);
+      return `${m}:${s < 10 ? "0" : ""}${s}`;
+    }
+
+    function seekToSeconds(sec) {
+      if (!Number.isFinite(sec)) return;
+      try {
+        videoEl.currentTime = Math.max(0, sec);
+        videoEl.play().catch(() => {});
+      } catch {}
+    }
+
+    function updateMarkerPosition() {
+      if (bugSeconds === null || !videoEl.duration || !Number.isFinite(videoEl.duration)) {
+        return;
+      }
+      const pct = Math.min(100, Math.max(0, (bugSeconds / videoEl.duration) * 100));
+      bugMarker.style.left = `${pct}%`;
+      bugMarker.style.display = "block";
+      durTimeLabel.textContent = formatSeconds(videoEl.duration);
+    }
+
+    videoEl.addEventListener("loadedmetadata", updateMarkerPosition);
+    videoEl.addEventListener("timeupdate", () => {
+      curTimeLabel.textContent = formatSeconds(videoEl.currentTime);
+      if (videoEl.duration && Number.isFinite(videoEl.duration)) {
+        const pct = Math.min(100, Math.max(0, (videoEl.currentTime / videoEl.duration) * 100));
+        timelineProgress.style.width = `${pct}%`;
+      }
+    });
+
+    timelineTrack.addEventListener("click", (e) => {
+      if (!videoEl.duration || !Number.isFinite(videoEl.duration)) return;
+      const rect = timelineTrack.getBoundingClientRect();
+      const ratio = (e.clientX - rect.left) / rect.width;
+      seekToSeconds(ratio * videoEl.duration);
+    });
+
+    bugMarker.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (bugSeconds !== null) seekToSeconds(bugSeconds);
+    });
+    jumpBugBtn.addEventListener("click", () => {
+      if (bugSeconds !== null) seekToSeconds(bugSeconds);
+    });
+
+    function updateStageNodes(stage) {
+      const nodes = {
+        analyze: document.getElementById("stAnalyze"),
+        writeRepro: document.getElementById("stWriteRepro"),
+        reproduced: document.getElementById("stReproduced"),
+        fixing: document.getElementById("stFixing"),
+        passed: document.getElementById("stPassed"),
+      };
+      Object.values(nodes).forEach((el) => {
+        el.className = "step-node";
+      });
+
+      if (stage === "uploaded" || stage === "analyzing") {
+        nodes.analyze.classList.add("active");
+      } else if (stage === "analyzed" || stage === "reproducing") {
+        nodes.analyze.classList.add("done");
+        nodes.writeRepro.classList.add("active");
+      } else if (stage === "not_reproduced") {
+        nodes.analyze.classList.add("done");
+        nodes.writeRepro.classList.add("done");
+        nodes.reproduced.classList.add("active");
+      } else if (stage === "reproduced") {
+        nodes.analyze.classList.add("done");
+        nodes.writeRepro.classList.add("done");
+        nodes.reproduced.classList.add("red");
+      } else if (stage === "fixing" || stage === "fix_failed") {
+        nodes.analyze.classList.add("done");
+        nodes.writeRepro.classList.add("done");
+        nodes.reproduced.classList.add("red");
+        nodes.fixing.classList.add(stage === "fix_failed" ? "red" : "active");
+      } else if (stage === "fixed" || stage === "approved" || stage === "pr_opened") {
+        nodes.analyze.classList.add("done");
+        nodes.writeRepro.classList.add("done");
+        nodes.reproduced.classList.add("red");
+        nodes.fixing.classList.add("done");
+        nodes.passed.classList.add("green");
+      }
+    }
+
+    function renderColoredDiff(diffText) {
+      diffBox.innerHTML = "";
+      if (!diffText) {
+        diffBox.textContent = "Waiting for verified fix diff...";
+        return;
+      }
+      const lines = diffText.split(/\r?\n/);
+      for (const line of lines) {
+        const div = document.createElement("div");
+        div.className = "diff-line";
+        if (line.startsWith("+") && !line.startsWith("+++")) {
+          div.classList.add("diff-add");
+        } else if (line.startsWith("-") && !line.startsWith("---")) {
+          div.classList.add("diff-del");
+        } else if (line.startsWith("@@") || line.startsWith("diff --git")) {
+          div.classList.add("diff-hunk");
+        }
+        div.textContent = line;
+        diffBox.appendChild(div);
+      }
+    }
+
     function renderReport(data) {
       if (!data) return;
+
       stageText.textContent = data.stage || "unknown";
-      reportJson.textContent = JSON.stringify(data, null, 2);
+      updateStageNodes(data.stage);
+
+      if (data.repoUrl) {
+        repoLink.href = data.repoUrl;
+        repoLink.textContent = data.repoUrl.replace(/^https?:\/\//, "");
+      }
+      if (data.note) {
+        reporterNoteBox.textContent = `Reporter note: "${data.note}"`;
+      } else {
+        reporterNoteBox.textContent = "Reporter note: (none provided)";
+      }
+
+      if (data.videoRef && !videoSrcLoaded) {
+        videoEl.src = data.videoRef;
+        videoSrcLoaded = true;
+      }
+
+      statusBanner.className = "status-banner";
+      if (data.stage === "not_reproduced") {
+        statusBanner.classList.add("not-reproduced");
+        stageMsg.textContent =
+          "Could not reproduce — no fix attempted. " +
+          (data.reproduce?.notes || "");
+      } else if (data.stage === "error" || data.stage === "fix_failed") {
+        statusBanner.classList.add("error");
+        stageMsg.textContent = data.error || "An error occurred.";
+      }
+
+      if (data.analysis) {
+        const a = data.analysis;
+        bugSeconds = parseTimestampToSeconds(a.bug_timestamp);
+        bugTimeLabel.textContent = a.bug_timestamp;
+        jumpBugBtn.style.display = "inline-flex";
+        confidenceBadge.textContent = `Confidence: ${String(a.confidence || "medium").toUpperCase()}`;
+        expectedText.textContent = a.expected || "—";
+        actualText.textContent = a.actual || "—";
+        updateMarkerPosition();
+
+        stepsList.innerHTML = "";
+        (a.steps || []).forEach((s) => {
+          const li = document.createElement("li");
+          li.className = "step-item";
+          const badge = document.createElement("span");
+          badge.className = "time-badge";
+          badge.textContent = s.t || "0:00";
+
+          const desc = document.createElement("span");
+          desc.textContent = `${s.action.toUpperCase()} → ${s.target}${
+            s.value ? ` ("${s.value}")` : ""
+          }`;
+          li.appendChild(badge);
+          li.appendChild(desc);
+          li.addEventListener("click", () => {
+            seekToSeconds(parseTimestampToSeconds(s.t));
+          });
+          stepsList.appendChild(li);
+        });
+      }
+
+      if (data.reproduce?.repro_test) {
+        reproTestBox.textContent = data.reproduce.repro_test;
+      }
+
+      // Big Test Counter
+      if (data.fix?.tests) {
+        const { passed, total } = data.fix.tests;
+        testCounterValue.textContent = `passed ${passed} / total ${total}`;
+        const isGreen = data.fix.status === "fixed" && passed === total && total > 0;
+        testCounterCard.className = `test-counter-card ${isGreen ? "green" : "red"}`;
+        testSubcaption.textContent = isGreen
+          ? `GREEN — Verified in ${data.fix.attempts || 1} attempt(s) on branch ${data.fix.branch}`
+          : `Fix loop ended after ${data.fix.attempts || 1} attempt(s)`;
+      } else if (data.reproduce?.tests) {
+        const { passed, total } = data.reproduce.tests;
+        testCounterValue.textContent = `passed ${passed} / total ${total}`;
+        testCounterCard.className = `test-counter-card ${
+          data.reproduce.status === "reproduced" ? "red" : ""
+        }`;
+        testSubcaption.textContent =
+          data.reproduce.status === "reproduced"
+            ? `RED — Bug reproduced! Assertion failed: ${data.reproduce.failure || "expected behavior did not match"}`
+            : data.reproduce.notes || "Could not reproduce — no fix attempted";
+      }
+
+      if (data.fix) {
+        fixSummaryText.textContent = data.fix.summary || fixSummaryText.textContent;
+        renderColoredDiff(data.fix.diff);
+        testChangedWarning.style.display = data.fix.test_files_changed
+          ? "inline-block"
+          : "none";
+        if (data.fix.diff) {
+          downloadDiffBtn.href = `/api/reports/${reportId}/diff`;
+          downloadDiffBtn.style.display = "inline-block";
+        }
+      }
+
+      if (data.prUrl) {
+        approveBtn.disabled = true;
+        approveBtn.textContent = "Pull Request Opened";
+        prLinkAnchor.href = data.prUrl;
+        prLinkAnchor.textContent = data.prUrl;
+        prLinkBox.style.display = "block";
+      } else if (data.stage === "fixed") {
+        approveBtn.disabled = false;
+        approveBtn.textContent = "Approve & Open Pull Request";
+      } else {
+        approveBtn.disabled = true;
+      }
+
       if (TERMINAL_STAGES.has(data.stage)) {
         if (es) {
           es.close();
@@ -82,6 +791,25 @@
         }
       }
     }
+
+    approveBtn.addEventListener("click", async () => {
+      approveBtn.disabled = true;
+      approveBtn.textContent = "Opening Pull Request...";
+      try {
+        const res = await fetch(`/api/reports/${reportId}/approve`, {
+          method: "POST",
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(body.error || `HTTP ${res.status}`);
+        }
+        await fetchReport();
+      } catch (err) {
+        approveBtn.disabled = false;
+        approveBtn.textContent = "Approve & Open Pull Request";
+        stageMsg.textContent = `PR Error: ${err.message}`;
+      }
+    });
 
     async function fetchReport() {
       try {
@@ -111,7 +839,11 @@
       es.onmessage = (evt) => {
         try {
           const event = JSON.parse(evt.data);
-          if (event.type === "result" && event.report) {
+          if (event.type === "stage") {
+            stageText.textContent = event.stage;
+            stageMsg.textContent = event.message || "";
+            updateStageNodes(event.stage);
+          } else if (event.type === "result" && event.report) {
             renderReport(event.report);
           } else {
             fetchReport();

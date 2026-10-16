@@ -10,3 +10,4 @@ demo/
 *.pem
 *.key
 credentials*.json
+PLAN.md
