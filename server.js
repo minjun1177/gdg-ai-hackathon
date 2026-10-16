@@ -94,8 +94,53 @@ export function emitReportEvent(reportId, event) {
   }
 }
 
-// Serve static assets and uploaded videos for review playback
+// Pre-populate the verified Cloud Run run (6f680035) that opened PR #1 on bugreel-demo-todo
+// so the review link inside GitHub PR #1 remains valid across stateless Cloud Run restarts.
+reports.set("6f680035", {
+  id: "6f680035",
+  createdAt: "2026-10-16T04:56:36.697Z",
+  stage: "pr_opened",
+  note: "체크했는데 숫자가 그대로예요",
+  repoUrl: "https://github.com/minjun1177/bugreel-demo-todo",
+  videoRef: "/demo/bug.webm",
+  videoMimeType: "video/webm",
+  analysis: {
+    bug_timestamp: "0:07",
+    steps: [
+      { t: "0:01", action: "type", target: ".new-todo input ('What needs to be done?')", value: "Buy milk" },
+      { t: "0:01", action: "press", target: ".new-todo input", value: "Enter" },
+      { t: "0:03", action: "type", target: ".new-todo input", value: "Walk the dog" },
+      { t: "0:03", action: "press", target: ".new-todo input", value: "Enter" },
+      { t: "0:04", action: "type", target: ".new-todo input", value: "Read a book" },
+      { t: "0:05", action: "press", target: ".new-todo input", value: "Enter" },
+      { t: "0:07", action: "click", target: "checkbox (.toggle) next to 'Walk the dog'" },
+    ],
+    expected: "When 'Walk the dog' is marked as completed, the active todo counter (.todo-count) should decrement from '3 items left' to '2 items left'.",
+    actual: "After checking 'Walk the dog' as completed, the counter in the bottom-left footer remains at '3 items left' instead of updating to reflect only active (uncompleted) items.",
+    confidence: "high",
+  },
+  reproduce: {
+    status: "reproduced",
+    repro_test: "const { test, expect } = require('@playwright/test');\n\ntest('active todo counter decrements when an item is marked as completed', async ({ page }) => {\n  await page.goto('http://localhost:4173');\n\n  const newTodo = page.locator('.new-todo');\n\n  await newTodo.fill('Buy milk');\n  await newTodo.press('Enter');\n\n  await newTodo.fill('Walk the dog');\n  await newTodo.press('Enter');\n\n  await newTodo.fill('Read a book');\n  await newTodo.press('Enter');\n\n  await expect(page.locator('.todo-count')).toHaveText('3 items left');\n\n  const walkTheDogItem = page.locator('.todo-list li', { hasText: 'Walk the dog' });\n  await walkTheDogItem.locator('.toggle').click();\n\n  await expect(page.locator('.todo-count')).toHaveText('2 items left');\n});\n",
+    tests: { passed: 0, total: 1 },
+    failure: "Error: expect(locator).toHaveText(expected) failed\n\nLocator:  locator('.todo-count')\nExpected: \"2 items left\"\nReceived: \"3 items left\"\nTimeout:  5000ms",
+    notes: "Bug reproduced: Controller.prototype._updateCount passes todos.total instead of todos.active to updateElementCount, leaving .todo-count at '3 items left' after marking 'Walk the dog' completed.",
+  },
+  fix: {
+    status: "fixed",
+    attempts: 1,
+    tests: { passed: 1, total: 1 },
+    branch: "bugreel/fix-6f680035",
+    diff: "diff --git a/src/controller.js b/src/controller.js\nindex 4c76b71..229b19d 100644\n--- a/src/controller.js\n+++ b/src/controller.js\n@@ -214,7 +214,7 @@\n     Controller.prototype._updateCount = function () {\n         var self = this;\n         self.model.getCount(function (todos) {\n-            self.view.render(\"updateElementCount\", todos.total);\n+            self.view.render(\"updateElementCount\", todos.active);\n             self.view.render(\"clearCompletedButton\", {\n                 completed: todos.completed,\n                 visible: todos.completed > 0,\n",
+    test_files_changed: false,
+    summary: "Updated Controller.prototype._updateCount in src/controller.js to pass todos.active instead of todos.total to self.view.render(\"updateElementCount\", ...), ensuring the .todo-count footer reflects the number of active (uncompleted) items.",
+  },
+  prUrl: "https://github.com/minjun1177/bugreel-demo-todo/pull/1",
+});
+
+// Serve static assets, demo assets, and uploaded videos for review playback
 app.use("/static", express.static(path.join(__dirname, "public")));
+app.use("/demo", express.static(path.join(__dirname, "demo")));
 app.use("/uploads", express.static(uploadsDir));
 
 // GET /healthz (and /health, /api/healthz for Cloud Run GFE compatibility) -> ok
@@ -106,6 +151,11 @@ app.get(["/healthz", "/health", "/api/healthz"], (_req, res) => {
 // GET / -> Reporter upload page
 app.get("/", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
+});
+
+// GET /architecture.html -> Interactive architecture & verification loop diagram
+app.get("/architecture.html", (_req, res) => {
+  res.sendFile(path.join(__dirname, "public", "architecture.html"));
 });
 
 // GET /review/:id -> Developer review page
