@@ -74,8 +74,8 @@ export function emitReportEvent(reportId, event) {
 app.use("/static", express.static(path.join(__dirname, "public")));
 app.use("/uploads", express.static(uploadsDir));
 
-// GET /healthz -> ok
-app.get("/healthz", (_req, res) => {
+// GET /healthz (and /health, /api/healthz for Cloud Run GFE compatibility) -> ok
+app.get(["/healthz", "/health", "/api/healthz"], (_req, res) => {
   res.status(200).type("text/plain").send("ok");
 });
 

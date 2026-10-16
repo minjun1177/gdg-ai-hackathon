@@ -1,0 +1,7 @@
+node_modules/
+uploads/
+.git/
+.env
+.env.*
+*.log
+HUMANS.md

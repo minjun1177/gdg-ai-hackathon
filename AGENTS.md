@@ -417,4 +417,6 @@ Warn the user this runs untrusted code on our infrastructure; limit it to the de
 ---
 
 ## 12. Lessons (append during the day)
-- _empty_
+- Cloud Run source deploy (`gcloud run deploy --source .`) requires granting `roles/storage.objectAdmin` to the default compute service account (`<project-number>-compute@developer.gserviceaccount.com`) on the `gs://run-sources-<project>-<region>` bucket when project-level IAM edits are restricted.
+- Google Frontend (GFE) on `*.run.app` intercepts `/healthz` with its own 404 page; expose `/health` and `/api/healthz` alongside `/healthz` so health checks work both locally and via GFE.
+
