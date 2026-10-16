@@ -659,6 +659,315 @@ export function parseGithubOwnerRepo(repoUrl) {
 }
 
 /**
+ * Parses a unified diff string into per-file patches and hunks.
+ * @param {string} diffText
+ */
+export function parseUnifiedDiff(diffText) {
+  if (!diffText || typeof diffText !== "string") return [];
+  const files = [];
+  const lines = diffText.split(/\r?\n/);
+  let currentFile = null;
+  let currentHunk = null;
+
+  for (const line of lines) {
+    const gitMatch = line.match(/^diff --git a\/(.+?) b\/(.+)$/);
+    if (gitMatch) {
+      currentFile = {
+        oldPath: gitMatch[1].trim(),
+        newPath: gitMatch[2].trim(),
+        hunks: [],
+      };
+      files.push(currentFile);
+      currentHunk = null;
+      continue;
+    }
+
+    const oldHeader = line.match(/^--- (?:a\/)?(.+)$/);
+    if (oldHeader && !line.startsWith("--- /dev/null")) {
+      const p = oldHeader[1].trim().split("\t")[0];
+      if (!currentFile) {
+        currentFile = { oldPath: p, newPath: p, hunks: [] };
+        files.push(currentFile);
+      } else {
+        currentFile.oldPath = p;
+      }
+      continue;
+    }
+
+    const newHeader = line.match(/^\+\+\+ (?:b\/)?(.+)$/);
+    if (newHeader && !line.startsWith("+++ /dev/null")) {
+      const p = newHeader[1].trim().split("\t")[0];
+      if (!currentFile) {
+        currentFile = { oldPath: p, newPath: p, hunks: [] };
+        files.push(currentFile);
+      } else {
+        currentFile.newPath = p;
+      }
+      continue;
+    }
+
+    const hunkHeader = line.match(
+      /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/
+    );
+    if (hunkHeader && currentFile) {
+      currentHunk = {
+        oldStart: Number(hunkHeader[1]),
+        oldLines: hunkHeader[2] !== undefined ? Number(hunkHeader[2]) : 1,
+        newStart: Number(hunkHeader[3]),
+        newLines: hunkHeader[4] !== undefined ? Number(hunkHeader[4]) : 1,
+        lines: [],
+      };
+      currentFile.hunks.push(currentHunk);
+      continue;
+    }
+
+    if (
+      currentHunk &&
+      (line.startsWith(" ") || line.startsWith("-") || line.startsWith("+"))
+    ) {
+      currentHunk.lines.push(line);
+    }
+  }
+
+  return files;
+}
+
+/**
+ * Applies parsed unified diff hunks to an original file string.
+ * @param {string} originalContent
+ * @param {Array<{ oldStart: number, lines: string[] }>} hunks
+ */
+export function applyUnifiedDiffToContent(originalContent, hunks) {
+  const hasCrlf = /\r\n/.test(originalContent);
+  const eol = hasCrlf ? "\r\n" : "\n";
+  const fileLines = originalContent ? originalContent.split(/\r?\n/) : [];
+  let lineOffset = 0;
+
+  for (const hunk of hunks) {
+    const oldChunk = hunk.lines
+      .filter((l) => l.startsWith(" ") || l.startsWith("-"))
+      .map((l) => l.slice(1));
+    const newChunk = hunk.lines
+      .filter((l) => l.startsWith(" ") || l.startsWith("+"))
+      .map((l) => l.slice(1));
+
+    const expectedIdx = Math.max(0, hunk.oldStart - 1 + lineOffset);
+
+    const matchesAt = (idx) => {
+      if (idx < 0 || idx + oldChunk.length > fileLines.length) return false;
+      for (let i = 0; i < oldChunk.length; i++) {
+        if (fileLines[idx + i].trim() !== oldChunk[i].trim()) return false;
+      }
+      return true;
+    };
+
+    let targetIdx = -1;
+    if (oldChunk.length === 0) {
+      targetIdx = Math.min(expectedIdx, fileLines.length);
+    } else if (matchesAt(expectedIdx)) {
+      targetIdx = expectedIdx;
+    } else {
+      // Search nearby lines first, then full file
+      for (let delta = 1; delta <= fileLines.length; delta++) {
+        if (matchesAt(expectedIdx - delta)) {
+          targetIdx = expectedIdx - delta;
+          break;
+        }
+        if (matchesAt(expectedIdx + delta)) {
+          targetIdx = expectedIdx + delta;
+          break;
+        }
+      }
+    }
+
+    if (targetIdx === -1) {
+      // Fallback: match only the removed ('-') lines if context lines differed
+      const removedOnly = hunk.lines
+        .filter((l) => l.startsWith("-"))
+        .map((l) => l.slice(1));
+      const addedOnly = hunk.lines
+        .filter((l) => l.startsWith("+"))
+        .map((l) => l.slice(1));
+      if (removedOnly.length > 0) {
+        for (let idx = 0; idx <= fileLines.length - removedOnly.length; idx++) {
+          let ok = true;
+          for (let j = 0; j < removedOnly.length; j++) {
+            if (fileLines[idx + j].trim() !== removedOnly[j].trim()) {
+              ok = false;
+              break;
+            }
+          }
+          if (ok) {
+            fileLines.splice(idx, removedOnly.length, ...addedOnly);
+            lineOffset += addedOnly.length - removedOnly.length;
+            targetIdx = idx;
+            break;
+          }
+        }
+      }
+      if (targetIdx === -1) {
+        throw new Error("Failed to apply unified diff hunk to target file.");
+      }
+    } else {
+      fileLines.splice(targetIdx, oldChunk.length, ...newChunk);
+      lineOffset += newChunk.length - oldChunk.length;
+    }
+  }
+
+  return fileLines.join(eol);
+}
+
+/**
+ * Ensures the fix branch (`bugreel/fix-<id>`) exists on GitHub with the verified diff
+ * and reproduction test (`tests/repro.spec.js`). If the sandbox agent already pushed
+ * the branch, this is a no-op; otherwise it pushes the commit via GitHub Git Data API.
+ * @param {object} report
+ */
+export async function ensureBranchOnGithub(report) {
+  const token = process.env.GITHUB_TOKEN;
+  if (!token || !report?.fix?.branch || report.fix.status !== "fixed") {
+    return false;
+  }
+
+  const { owner, repo } = parseGithubOwnerRepo(report.repoUrl);
+  const branchName = report.fix.branch.replace(/^refs\/heads\//, "");
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    Accept: "application/vnd.github+json",
+    "Content-Type": "application/json",
+    "X-GitHub-Api-Version": "2022-11-28",
+    "User-Agent": "BugReel-Agent",
+  };
+  const apiBase = `https://api.github.com/repos/${encodeURIComponent(
+    owner
+  )}/${encodeURIComponent(repo)}`;
+
+  // 1. Check if branch already exists on GitHub
+  const branchRes = await fetch(
+    `${apiBase}/git/ref/heads/${ branchName.split("/").map(encodeURIComponent).join("/") }`,
+    { headers }
+  );
+  if (branchRes.ok) {
+    return true;
+  }
+
+  // 2. Get base branch ('main') SHA
+  const mainRefRes = await fetch(`${apiBase}/git/ref/heads/main`, { headers });
+  if (!mainRefRes.ok) {
+    throw new Error(`Failed to fetch main branch ref (${mainRefRes.status}).`);
+  }
+  const mainRefData = await mainRefRes.json();
+  const baseSha = mainRefData.object?.sha;
+  if (!baseSha) {
+    throw new Error("Could not resolve base SHA for main branch.");
+  }
+
+  // 3. Build tree entries from report.fix.diff + report.reproduce.repro_test
+  const treeEntries = [];
+  const filePatches = parseUnifiedDiff(report.fix.diff || "");
+
+  for (const patch of filePatches) {
+    const targetPath = (patch.newPath || patch.oldPath || "")
+      .replace(/^\/+/, "")
+      .replace(/^\.\//, "");
+    if (
+      !targetPath ||
+      targetPath === "/dev/null" ||
+      targetPath === "tests/repro.spec.js"
+    ) {
+      continue;
+    }
+
+    let originalText = "";
+    const fileRes = await fetch(
+      `${apiBase}/contents/${targetPath
+        .split("/")
+        .map(encodeURIComponent)
+        .join("/")}?ref=main`,
+      { headers }
+    );
+    if (fileRes.ok) {
+      const fileData = await fileRes.json();
+      if (fileData.content) {
+        originalText = Buffer.from(fileData.content, "base64").toString("utf8");
+      }
+    }
+
+    const updatedText = applyUnifiedDiffToContent(originalText, patch.hunks);
+    treeEntries.push({
+      path: targetPath,
+      mode: "100644",
+      type: "blob",
+      content: updatedText,
+    });
+  }
+
+  if (report.reproduce?.repro_test) {
+    treeEntries.push({
+      path: "tests/repro.spec.js",
+      mode: "100644",
+      type: "blob",
+      content: report.reproduce.repro_test,
+    });
+  }
+
+  if (treeEntries.length === 0) {
+    throw new Error("No file changes found in diff to push branch.");
+  }
+
+  // 4. Create Git tree
+  const treeRes = await fetch(`${apiBase}/git/trees`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      base_tree: baseSha,
+      tree: treeEntries,
+    }),
+  });
+  if (!treeRes.ok) {
+    const errBody = await treeRes.text();
+    throw new Error(`Failed to create Git tree (${treeRes.status}): ${errBody}`);
+  }
+  const treeData = await treeRes.json();
+
+  // 5. Create Git commit
+  const commitRes = await fetch(`${apiBase}/git/commits`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      message: `fix: resolve bug ${report.id} verified by BugReel`,
+      tree: treeData.sha,
+      parents: [baseSha],
+    }),
+  });
+  if (!commitRes.ok) {
+    const errBody = await commitRes.text();
+    throw new Error(
+      `Failed to create Git commit (${commitRes.status}): ${errBody}`
+    );
+  }
+  const commitData = await commitRes.json();
+
+  // 6. Create branch reference
+  const createRefRes = await fetch(`${apiBase}/git/refs`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      ref: `refs/heads/${branchName}`,
+      sha: commitData.sha,
+    }),
+  });
+  if (!createRefRes.ok && createRefRes.status !== 422) {
+    const errBody = await createRefRes.text();
+    throw new Error(
+      `Failed to create branch ${branchName} (${createRefRes.status}): ${errBody}`
+    );
+  }
+
+  return true;
+}
+
+/**
  * [D] Opens a GitHub Pull Request for an approved fixed report per AGENTS.md 5.9.
  * @param {object} report
  * @param {string} reviewPageUrl
@@ -680,6 +989,9 @@ export async function createGithubPullRequest(report, reviewPageUrl) {
       "Cannot open a pull request before the bug is fixed and all tests pass."
     );
   }
+
+  // Ensure the fix branch exists on GitHub before opening the PR
+  await ensureBranchOnGithub(report);
 
   const { owner, repo } = parseGithubOwnerRepo(report.repoUrl);
   const headers = {
@@ -865,6 +1177,14 @@ export async function runBugReelPipeline(report, emitEvent, overrides = {}) {
     });
 
     if (fixResult.status === "fixed") {
+      try {
+        await ensureBranchOnGithub(report);
+      } catch (branchErr) {
+        console.warn(
+          `Branch push fallback deferred until PR approval for ${report.id}:`,
+          branchErr?.message || branchErr
+        );
+      }
       updateStage(
         "fixed",
         `Fix verified (GREEN): ${fixResult.tests.passed}/${fixResult.tests.total} passed in ${fixResult.attempts} attempt(s). Ready for approval.`
